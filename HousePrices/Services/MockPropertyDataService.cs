@@ -16,6 +16,14 @@ namespace HousePrices.Services
             return GenerateMockProperties(region, 100);
         }
 
+        public async Task<List<Property>> GetPropertiesAsync(string region, int numOfProps)
+        {
+            // Simulate API delay
+            await Task.Delay(500);
+
+            return GenerateMockProperties(region, numOfProps);
+        }
+
         public async Task<List<PropertyHeatmapPoint>> GetHeatmapDataAsync(string region)
         {
             await Task.Delay(300);
@@ -33,9 +41,9 @@ namespace HousePrices.Services
                 .ToList();
         }
 
-        public async Task<MapLayerData> GetMapLayerDataAsync(string region)
+        public async Task<MapLayerData> GetMapLayerDataAsync(string region, int propertiesCount = 100)
         {
-            var properties = await GetPropertiesAsync(region);
+            var properties = await GetPropertiesAsync(region, propertiesCount);
             var heatmapData = await GetHeatmapDataAsync(region);
 
             var markers = properties.Select(p => new PropertyMarker
@@ -178,7 +186,7 @@ namespace HousePrices.Services
 
         private decimal GeneratePrice(decimal basePrice)
         {
-            var variance = _random.NextDouble() * 0.8 + 0.6; // 60% to 140% of base price
+            var variance = _random.NextDouble() * 0.8 + .6; // 60% to 140% of base price
             return Math.Round(basePrice * (decimal)variance / 10000) * 10000; // Round to nearest 10k
         }
 

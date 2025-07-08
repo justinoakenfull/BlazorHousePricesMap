@@ -32,7 +32,6 @@ function initializePropertyMap() {
 
     // Initialize layers
     markersLayer = L.layerGroup().addTo(map);
-    heatmapLayer = L.layerGroup();
 
     // Handle container resize
     const container = document.getElementById('map').parentElement;
@@ -41,14 +40,42 @@ function initializePropertyMap() {
         map.invalidateSize();
     });
     resizeObserver.observe(container);
+    // Function to adjust heatmap intensity based on zoom
+    map.on('zoomend', function () {
+        if (heatmapLayer && map.hasLayer(heatmapLayer)) {
+            const currentZoom = map.getZoom();
+            const baseRadius = heatmapLayer._baseRadius || 25;
+            const baseBlur = heatmapLayer._baseBlur || 15;
+
+            // Adjust radius based on zoom level
+            let radiusMultiplier;
+            if (currentZoom < 10) {
+                radiusMultiplier = 2;
+            } else if (currentZoom < 12) {
+                radiusMultiplier = 1.8;
+            } else if (currentZoom < 14) {
+                radiusMultiplier = 1.6;
+            } else {
+                radiusMultiplier = 1.4;
+            }
+
+            heatmapLayer.setOptions({
+                radius: baseRadius * radiusMultiplier,
+                blur: baseBlur * radiusMultiplier
+            });
+        }
+    });
 }
 
 function updateMapData(markers, heatmapPoints, region) {
     console.log(`Updating map with ${markers.length} markers for ${region}`);
 
-    // Clear existing markers
+    // Clear existing markers and heatmap
     markersLayer.clearLayers();
-    heatmapLayer.clearLayers();
+    if (heatmapLayer) {
+        map.removeLayer(heatmapLayer);
+        heatmapLayer = null;
+    }
 
     // Store data for future use
     currentMarkers = markers;
@@ -68,8 +95,8 @@ function updateMapData(markers, heatmapPoints, region) {
         markersLayer.addLayer(mapMarker);
     });
 
-    // Create heatmap points but don't add to map yet
-    createHeatmapLayer(heatmapPoints);
+    // Create heatmap layer
+    createHeatmapLayer(markers);
 
     console.log(`Added ${markers.length} markers to map`);
 }
@@ -101,27 +128,139 @@ function createCustomMarker(color) {
     });
 }
 
-function createHeatmapLayer(heatmapPoints) {
-    // Simple heatmap using circles with varying opacity
-    heatmapPoints.forEach(point => {
-        const circle = L.circle([point.lat, point.lng], {
-            radius: 200,
-            fillColor: '#ff0000',
-            color: 'transparent',
-            fillOpacity: point.intensity * 0.3,
-            weight: 0
-        });
+function createHeatmapLayer(markers) {
+    // Find min and max prices to normalize the data
+    let minPrice = Infinity;
+    let maxPrice = -Infinity;
 
-        heatmapLayer.addLayer(circle);
+    markers.forEach(marker => {
+        if (marker.price < minPrice) minPrice = marker.price;
+        if (marker.price > maxPrice) maxPrice = marker.price;
     });
+
+    console.log(`Price range: ${minPrice.toLocaleString()} - ${maxPrice.toLocaleString()}`);
+    console.log(`Creating heatmap with ${markers.length} properties`);
+
+    // Calculate price thresholds for better distribution
+    const priceRange = maxPrice - minPrice;
+    const midPrice = minPrice + (priceRange * 0.5);
+
+    // Convert markers to heatmap data format with weighted intensities
+    const heatData = [];
+
+    markers.forEach(marker => {
+        // Calculate base intensity from price
+        let intensity = (marker.price - minPrice) / priceRange || 0.5;
+
+        // Apply non-linear scaling to create more variation
+        // This creates more distinct hot and cold spots
+        if (intensity < 0.3) {
+            intensity = intensity * 0.5; // Make cheap properties cooler
+        } else if (intensity > 0.7) {
+            intensity = 0.7 + (intensity - 0.7) * 1.5; // Make expensive properties hotter
+            intensity = Math.min(intensity, 1.0);
+        }
+
+        // Add the main point with full intensity
+        heatData.push([marker.lat, marker.lng, intensity]);
+
+        // Add surrounding points to create better coverage
+        // More points = more continuous heatmap
+        const surroundingPoints = markers.length < 50 ? 8 : markers.length < 200 ? 5 : 3;
+        const spread = markers.length < 50 ? 0.015 : markers.length < 200 ? 0.01 : 0.007;
+
+        for (let i = 0; i < surroundingPoints; i++) {
+            const angle = (i / surroundingPoints) * 2 * Math.PI;
+            const distance = spread * (0.5 + Math.random() * 0.5);
+            const offsetLat = marker.lat + Math.cos(angle) * distance;
+            const offsetLng = marker.lng + Math.sin(angle) * distance * 1.2; // Slightly more spread on longitude
+            const offsetIntensity = intensity * (0.4 + Math.random() * 0.3);
+            heatData.push([offsetLat, offsetLng, offsetIntensity]);
+        }
+    });
+
+    // Dynamically adjust radius and blur based on number of properties
+    let radius, blur, maxIntensity;
+
+    if (markers.length < 10) {
+        radius = 80;
+        blur = 60;
+        maxIntensity = 0.4;
+    } else if (markers.length < 25) {
+        radius = 70;
+        blur = 50;
+        maxIntensity = 0.5;
+    } else if (markers.length < 50) {
+        radius = 60;
+        blur = 40;
+        maxIntensity = 0.6;
+    } else if (markers.length < 100) {
+        radius = 50;
+        blur = 35;
+        maxIntensity = 0.7;
+    } else if (markers.length < 250) {
+        radius = 40;
+        blur = 30;
+        maxIntensity = 0.8;
+    } else {
+        radius = 35;
+        blur = 25;
+        maxIntensity = 0.9;
+    }
+
+    // Create the heatmap layer with custom options
+    heatmapLayer = L.heatLayer(heatData, {
+        radius: radius,
+        blur: blur,
+        maxZoom: 16,
+        max: maxIntensity,
+        gradient: {
+            0.0: '#0000ff',   // Pure blue for coldest
+            0.1: '#0040ff',
+            0.2: '#0080ff',
+            0.3: '#00bfff',
+            0.4: '#00ffff',   // Cyan
+            0.5: '#00ff80',   // Green-cyan
+            0.6: '#80ff00',   // Yellow-green
+            0.7: '#ffff00',   // Yellow
+            0.8: '#ff8000',   // Orange
+            0.9: '#ff4000',   // Red-orange
+            1.0: '#ff0000'    // Pure red for hottest
+        },
+        minOpacity: 0.2   // Lower min opacity for better blending
+    });
+
+    // Store the base radius for zoom adjustments
+    heatmapLayer._baseRadius = radius;
+    heatmapLayer._baseBlur = blur;
+
+    // Don't add to map yet - wait for toggle
+    console.log(`Heatmap created: radius=${radius}, blur=${blur}, maxIntensity=${maxIntensity}, points=${heatData.length}`);
 }
 
 function toggleHeatmap(show) {
+    if (!heatmapLayer) {
+        console.log('No heatmap layer available');
+        return;
+    }
+
     if (show) {
         map.addLayer(heatmapLayer);
+        // Optionally reduce marker opacity when showing heatmap
+        markersLayer.eachLayer(function (layer) {
+            if (layer.setOpacity) {
+                layer.setOpacity(0.6);
+            }
+        });
         console.log('Heatmap layer added');
     } else {
         map.removeLayer(heatmapLayer);
+        // Restore full marker opacity
+        markersLayer.eachLayer(function (layer) {
+            if (layer.setOpacity) {
+                layer.setOpacity(1.0);
+            }
+        });
         console.log('Heatmap layer removed');
     }
 }
@@ -134,7 +273,6 @@ function maxMapSize() {
     mapContainer.style.width = '100%';
     console.log(mapContainer.style.width);
     mapContainer.style.height = containerWidth + 'px';
-
 
     if (map) {
         map.invalidateSize();
@@ -169,3 +307,4 @@ document.addEventListener('DOMContentLoaded', function () {
         map.on('click', onMapClick);
     }
 });
+

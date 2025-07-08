@@ -1,4 +1,5 @@
 ﻿@page "/"
+@rendermode InteractiveServer
 @using HousePrices.Services.Interfaces
 @using HousePrices.Models
 @inject IPropertyDataService PropertyDataService
@@ -25,6 +26,12 @@
         }
     </div>
     <div class="d-flex gap-2">
+        <div class="d-flex align-items-center gap-1">
+            <label class="form-label mb-0 small">Properties:</label>
+            <input type="number" class="form-control form-control-sm" style="width: 80px;"
+                   @bind="propertiesCount" @bind:after="LoadRegionData"
+                   min="10" max="1000" />
+        </div>
         <select class="form-select form-select-sm" style="width: auto;" @bind="selectedRegion" @bind:after="LoadRegionData">
             <option value="Sydney">Sydney</option>
             <option value="Melbourne">Melbourne</option>
@@ -38,8 +45,8 @@
         <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleHeatmap">
             @(showHeatmap ? "Hide" : "Show") Heatmap
         </button>
-        <button class="btn btn-outline-info btn-sm" @onclick="RefreshData">
-            <i class="bi bi-arrow-clockwise"></i> Refresh
+        <button class="btn btn-outline-info" @onclick="RefreshData">
+            <i class="bi bi-arrow-clockwise alert-dark"></i> Refresh
         </button>
     </div>
 </div>
@@ -90,11 +97,10 @@
     </div>
 </div>
 
-<script src="js/property_map.js"></script>
-
 @code {
     private MapLayerData? mapData;
     private string selectedRegion = "Sydney";
+    private int propertiesCount = 100;
     private bool isLoading = true;
     private bool showHeatmap = false;
 
@@ -102,8 +108,21 @@
     {
         if (firstRender)
         {
-            await LoadRegionData();
-            await JSRuntime.InvokeVoidAsync("initializePropertyMap");
+            try
+            {
+                // Wait a bit for the DOM to be ready
+                await Task.Delay(500);
+
+                // Initialize the map first
+                await JSRuntime.InvokeVoidAsync("initializePropertyMap");
+
+                // Then load the data
+                await LoadRegionData();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in OnAfterRenderAsync: {ex.Message}");
+            }
         }
     }
 
@@ -114,10 +133,13 @@
 
         try
         {
-            mapData = await PropertyDataService.GetMapLayerDataAsync(selectedRegion);
+            Console.WriteLine($"Loading data for region: {selectedRegion}");
+            mapData = await PropertyDataService.GetMapLayerDataAsync(selectedRegion, propertiesCount);
+            Console.WriteLine($"Loaded {mapData?.TotalProperties} properties");
 
             if (mapData != null)
             {
+                Console.WriteLine($"Calling updateMapData with {mapData.Markers.Count} markers");
                 await JSRuntime.InvokeVoidAsync("updateMapData", mapData.Markers, mapData.HeatmapPoints, selectedRegion);
             }
         }
@@ -135,7 +157,14 @@
     private async Task MaxMapSize()
     {
         Console.WriteLine("Changing map size.");
-        await JSRuntime.InvokeVoidAsync("maxMapSize");
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("maxMapSize");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error calling maxMapSize: {ex.Message}");
+        }
     }
 
     private async Task ToggleHeatmap()

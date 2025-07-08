@@ -15,6 +15,11 @@ namespace HousePrices.Services
             throw new NotImplementedException();
         }
 
+        public Task<MapLayerData> GetMapLayerDataAsync(string region, int propertiesCount = 100)
+        {
+            throw new NotImplementedException();
+        }
+
         public Task<List<Property>> GetPropertiesAsync(string region)
         {
             throw new NotImplementedException();
