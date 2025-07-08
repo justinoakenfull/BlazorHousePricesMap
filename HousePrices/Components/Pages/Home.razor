@@ -1,0 +1,21 @@
+﻿@page "/"
+
+<PageTitle>Home</PageTitle>
+
+<h1>Hello, world!</h1>
+
+<div class="d-flex justify-content-between py-2">
+    <div>
+        Welcome to your new map.
+    </div>
+    <button class="btn btn-primary" onclick="maxMapSize()">
+        Max map size
+    </button>
+</div>
+
+<div class="map-container">
+    <div id="map"></div>
+    <div class="resize-handle"></div>
+</div>
+
+<script src="js/home_map.js"></script>
