@@ -1,16 +1,47 @@
 ﻿@page "/"
+@using HousePrices.Services.Interfaces
+@using HousePrices.Models
+@inject IPropertyDataService PropertyDataService
+@inject IJSRuntime JSRuntime
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Property Map</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Property Map</h1>
 
-<div class="d-flex justify-content-between py-2">
-    <div>
-        Welcome to your new map.
+<div class="d-flex justify-content-between align-items-center py-2">
+    <div class="d-flex align-items-center gap-3">
+        <span>Welcome to your property map.</span>
+        @if (isLoading)
+        {
+            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <span class="text-muted">Loading properties...</span>
+        }
+        else if (mapData != null)
+        {
+            <span class="badge bg-info">@mapData.TotalProperties properties</span>
+            <span class="badge bg-success">Avg: @mapData.AveragePrice.ToString("C0")</span>
+        }
     </div>
-    <button class="btn btn-primary" onclick="maxMapSize()">
-        Max map size
-    </button>
+    <div class="d-flex gap-2">
+        <select class="form-select form-select-sm" style="width: auto;" @bind="selectedRegion" @bind:after="LoadRegionData">
+            <option value="Sydney">Sydney</option>
+            <option value="Melbourne">Melbourne</option>
+            <option value="Brisbane">Brisbane</option>
+            <option value="Perth">Perth</option>
+            <option value="Adelaide">Adelaide</option>
+        </select>
+        <button class="btn btn-primary btn-sm" @onclick="MaxMapSize">
+            Max map size
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleHeatmap">
+            @(showHeatmap ? "Hide" : "Show") Heatmap
+        </button>
+        <button class="btn btn-outline-info btn-sm" @onclick="RefreshData">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
 </div>
 
 <div class="map-container">
@@ -18,4 +49,103 @@
     <div class="resize-handle"></div>
 </div>
 
-<script src="js/home_map.js"></script>
+<div class="mt-3">
+    <div class="row">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-title text-success">Budget</h6>
+                    <span class="badge bg-success">●</span>
+                    <p class="card-text small mb-0">Under $500k</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-title text-primary">Mid-range</h6>
+                    <span class="badge bg-primary">●</span>
+                    <p class="card-text small mb-0">$500k - $1M</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-title text-warning">Premium</h6>
+                    <span class="badge bg-warning">●</span>
+                    <p class="card-text small mb-0">$1M - $2M</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-title text-danger">Luxury</h6>
+                    <span class="badge bg-danger">●</span>
+                    <p class="card-text small mb-0">Over $2M</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="js/property_map.js"></script>
+
+@code {
+    private MapLayerData? mapData;
+    private string selectedRegion = "Sydney";
+    private bool isLoading = true;
+    private bool showHeatmap = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadRegionData();
+            await JSRuntime.InvokeVoidAsync("initializePropertyMap");
+        }
+    }
+
+    private async Task LoadRegionData()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            mapData = await PropertyDataService.GetMapLayerDataAsync(selectedRegion);
+
+            if (mapData != null)
+            {
+                await JSRuntime.InvokeVoidAsync("updateMapData", mapData.Markers, mapData.HeatmapPoints, selectedRegion);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading data: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task MaxMapSize()
+    {
+        Console.WriteLine("Changing map size.");
+        await JSRuntime.InvokeVoidAsync("maxMapSize");
+    }
+
+    private async Task ToggleHeatmap()
+    {
+        showHeatmap = !showHeatmap;
+        await JSRuntime.InvokeVoidAsync("toggleHeatmap", showHeatmap);
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadRegionData();
+    }
+}
